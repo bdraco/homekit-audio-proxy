@@ -84,7 +84,7 @@ async def test_proxy_forwards_and_encrypts():
 
 
 @pytest.mark.asyncio
-async def test_proxy_start_with_invalid_key(caplog: pytest.LogCaptureFixture):
+async def test_proxy_start_with_invalid_key(caplog: pytest.LogCaptureFixture) -> None:
     """Proxy should handle subprocess failure on start gracefully."""
     proxy = AudioProxy(
         dest_addr="127.0.0.1",
@@ -101,7 +101,7 @@ async def test_proxy_start_with_invalid_key(caplog: pytest.LogCaptureFixture):
 
 
 @pytest.mark.asyncio
-async def test_log_stderr_forwards_lines(caplog: pytest.LogCaptureFixture):
+async def test_log_stderr_forwards_lines(caplog: pytest.LogCaptureFixture) -> None:
     """_log_stderr should forward subprocess stderr lines to logger."""
     reader = asyncio.StreamReader()
     reader.feed_data(b"some warning message\n")

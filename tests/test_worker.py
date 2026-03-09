@@ -153,7 +153,7 @@ def _run_worker_in_thread(
     result_holder: list[int],
     extra_patches: dict[str, object] | None = None,
 ) -> tuple[threading.Thread, io.StringIO]:
-    """Start the worker in a thread with orphan detection, return thread and captured IO."""
+    """Start worker in a thread with orphan detection."""
     captured = io.StringIO()
     original_ppid = os.getppid()
     call_count = 0
@@ -239,12 +239,10 @@ def test_worker_sendto_oserror_exits_cleanly(srtp_key_b64: str, free_port: int) 
     original_sendto = socket.socket.sendto
     sendto_armed = threading.Event()
 
-    def mock_sendto(
-        self: socket.socket, data: bytes, *args: object, **kwargs: object
-    ) -> int:
+    def mock_sendto(self: socket.socket, data: bytes, address: object) -> int:
         if sendto_armed.is_set():
             raise OSError("Network is unreachable")
-        return original_sendto(self, data, *args, **kwargs)
+        return original_sendto(self, data, address)
 
     result_holder: list[int] = []
 
