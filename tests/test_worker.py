@@ -81,7 +81,7 @@ def test_worker_send_bind_failure_returns_error(srtp_key_b64: str) -> None:
 
     def mock_bind(self: socket.socket, address: tuple[str, int]) -> None:
         """Fail bind on 0.0.0.0 (the send socket) but allow 127.0.0.1 (recv)."""
-        if address[0] == "0.0.0.0":
+        if address[0] == "0.0.0.0":  # noqa: S104
             raise OSError("Address already in use")
         original_bind(self, address)
 
@@ -153,7 +153,6 @@ def test_worker_processes_and_forwards_packet(
     srtp_key_b64: str, free_port: int
 ) -> None:
     """Worker should forward SRTP packets with converted timestamps."""
-    local_port_holder: list[int] = []
     result_holder: list[int] = []
 
     import io
@@ -215,7 +214,6 @@ def test_worker_processes_and_forwards_packet(
 
 def test_worker_skips_short_packets(srtp_key_b64: str, free_port: int) -> None:
     """Worker should skip packets shorter than minimum RTP header."""
-    local_port_holder: list[int] = []
     result_holder: list[int] = []
 
     import io
