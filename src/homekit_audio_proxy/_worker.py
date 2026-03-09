@@ -40,7 +40,6 @@ def run_proxy(
         traceback.print_exc(file=sys.stderr)
         return 1
 
-    ratio = target_clock_rate / SRTP_OPUS_CLOCK_RATE
     parent_pid = os.getppid()
 
     recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -87,7 +86,7 @@ def run_proxy(
 
             # Convert timestamp from 48000 Hz to negotiated sample rate
             ts = _UINT32_BE.unpack_from(data, 4)[0]
-            new_ts = int(ts * ratio) & 0xFFFFFFFF
+            new_ts = (ts * target_clock_rate // SRTP_OPUS_CLOCK_RATE) & 0xFFFFFFFF
             packet = bytearray(data)
             _UINT32_BE.pack_into(packet, 4, new_ts)
 

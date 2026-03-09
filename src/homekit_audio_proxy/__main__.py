@@ -6,6 +6,13 @@ import sys
 
 from ._worker import run_proxy
 
+if len(sys.argv) != 4:
+    sys.stderr.write(
+        f"Usage: {sys.executable} -m homekit_audio_proxy"
+        " <dest_addr> <dest_port> <target_clock_rate>\n"
+    )
+    sys.exit(2)
+
 # SRTP key is passed via stdin to avoid exposing it in process args
 _srtp_key = sys.stdin.readline().strip()
 sys.exit(

@@ -3,44 +3,34 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import os
 import socket
-import struct
 
 import pytest
 
 from homekit_audio_proxy import AudioProxy
 
-
-def _make_key_b64() -> str:
-    """Generate a random 30-byte SRTP master key+salt as base64."""
-    return base64.b64encode(os.urandom(30)).decode()
+from .conftest import make_rtp_packet
 
 
-def _make_rtp_packet(
-    seq: int = 1,
-    timestamp: int = 960,
-    ssrc: int = 0x12345678,
-    payload: bytes = b"\x00" * 20,
-) -> bytes:
-    """Build a minimal RTP packet."""
-    header = struct.pack("!BBHII", 0x80, 111, seq, timestamp, ssrc)
-    return header + payload
+@pytest.fixture
+def free_dest_port() -> int:
+    """Find a free UDP port for the proxy destination."""
+    tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    tmp.bind(("127.0.0.1", 0))
+    port = tmp.getsockname()[1]
+    tmp.close()
+    return port
 
 
 @pytest.mark.asyncio
-async def test_proxy_start_stop():
+async def test_proxy_start_stop(
+    srtp_key_b64: str, free_dest_port: int
+) -> None:
     """Proxy should start, report a port, and stop cleanly."""
-    tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    tmp.bind(("127.0.0.1", 0))
-    dest_port = tmp.getsockname()[1]
-    tmp.close()
-
     proxy = AudioProxy(
         dest_addr="127.0.0.1",
-        dest_port=dest_port,
-        srtp_key_b64=_make_key_b64(),
+        dest_port=free_dest_port,
+        srtp_key_b64=srtp_key_b64,
         target_clock_rate=16000,
     )
     await proxy.async_start()
@@ -51,18 +41,14 @@ async def test_proxy_start_stop():
 
 
 @pytest.mark.asyncio
-async def test_proxy_forwards_and_encrypts():
+async def test_proxy_forwards_and_encrypts(
+    srtp_key_b64: str, free_dest_port: int
+) -> None:
     """Proxy should forward RTP as SRTP with converted timestamps."""
-    tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    tmp.bind(("127.0.0.1", 0))
-    dest_port = tmp.getsockname()[1]
-    tmp.close()
-
-    key_b64 = _make_key_b64()
     proxy = AudioProxy(
         dest_addr="127.0.0.1",
-        dest_port=dest_port,
-        srtp_key_b64=key_b64,
+        dest_port=free_dest_port,
+        srtp_key_b64=srtp_key_b64,
         target_clock_rate=16000,
     )
     await proxy.async_start()
@@ -70,7 +56,7 @@ async def test_proxy_forwards_and_encrypts():
 
     try:
         sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        rtp = _make_rtp_packet(seq=1, timestamp=960)
+        rtp = make_rtp_packet(seq=1, timestamp=960)
         sender.sendto(rtp, ("127.0.0.1", proxy.local_port))
         sender.close()
 
@@ -83,7 +69,9 @@ async def test_proxy_forwards_and_encrypts():
 
 
 @pytest.mark.asyncio
-async def test_proxy_start_with_invalid_key(caplog: pytest.LogCaptureFixture) -> None:
+async def test_proxy_start_with_invalid_key(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Proxy should handle subprocess failure on start gracefully."""
     proxy = AudioProxy(
         dest_addr="127.0.0.1",
@@ -95,12 +83,16 @@ async def test_proxy_start_with_invalid_key(caplog: pytest.LogCaptureFixture) ->
 
     assert proxy.local_port == 0
     assert "Audio proxy subprocess failed to start" in caplog.text
+    # Process should be cleaned up
+    assert proxy._process is None
 
     await proxy.async_stop()
 
 
 @pytest.mark.asyncio
-async def test_log_stderr_forwards_lines(caplog: pytest.LogCaptureFixture) -> None:
+async def test_log_stderr_forwards_lines(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """_log_stderr should forward subprocess stderr lines to logger."""
     reader = asyncio.StreamReader()
     reader.feed_data(b"some warning message\n")
@@ -113,7 +105,7 @@ async def test_log_stderr_forwards_lines(caplog: pytest.LogCaptureFixture) -> No
 
 
 @pytest.mark.asyncio
-async def test_log_stderr_empty_stream():
+async def test_log_stderr_empty_stream() -> None:
     """_log_stderr should return immediately on empty stream."""
     reader = asyncio.StreamReader()
     reader.feed_eof()
@@ -122,12 +114,12 @@ async def test_log_stderr_empty_stream():
 
 
 @pytest.mark.asyncio
-async def test_proxy_stop_is_idempotent():
+async def test_proxy_stop_is_idempotent(srtp_key_b64: str) -> None:
     """Calling async_stop multiple times should not raise."""
     proxy = AudioProxy(
         dest_addr="127.0.0.1",
         dest_port=0,
-        srtp_key_b64=_make_key_b64(),
+        srtp_key_b64=srtp_key_b64,
         target_clock_rate=16000,
     )
     await proxy.async_stop()

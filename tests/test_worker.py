@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import base64
 import contextlib
 import io
 import os
 import socket
-import struct
 import sys
 import threading
 import time
@@ -18,53 +16,27 @@ import pytest
 from homekit_audio_proxy._srtp import SRTPContext
 from homekit_audio_proxy._worker import run_proxy
 
-
-@pytest.fixture
-def srtp_key_b64() -> str:
-    """Generate a random 30-byte SRTP master key+salt as base64."""
-    return base64.b64encode(os.urandom(30)).decode()
-
-
-@pytest.fixture
-def free_port() -> int:
-    """Find a free UDP port."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
-
-
-def _make_rtp_packet(
-    seq: int = 1,
-    timestamp: int = 960,
-    ssrc: int = 0x12345678,
-    payload: bytes = b"\x00" * 20,
-) -> bytes:
-    """Build a minimal RTP packet."""
-    header = struct.pack("!BBHII", 0x80, 111, seq, timestamp, ssrc)
-    return header + payload
+from .conftest import make_rtp_packet
 
 
 def test_srtp_encrypt_roundtrip(srtp_key_b64: str) -> None:
     """SRTP context should produce correctly sized encrypted packets."""
     srtp = SRTPContext(srtp_key_b64)
-    rtp = _make_rtp_packet(timestamp=960)
+    rtp = make_rtp_packet(timestamp=960)
     encrypted = srtp.encrypt(rtp)
     # SRTP packet: 12 header + 20 payload + 10 auth
     assert len(encrypted) == 42
 
 
 def test_worker_converts_timestamps() -> None:
-    """Verify the timestamp ratio calculation is correct."""
-    ratio = 16000 / 48000
-    assert int(960 * ratio) & 0xFFFFFFFF == 320
-    assert int(2880 * ratio) & 0xFFFFFFFF == 960
+    """Verify the integer timestamp conversion is correct."""
+    assert (960 * 16000 // 48000) & 0xFFFFFFFF == 320
+    assert (2880 * 16000 // 48000) & 0xFFFFFFFF == 960
 
     # Verify wraparound handling
     ts_48k = 0xFFFFFF00
-    ts_16k = int(ts_48k * ratio) & 0xFFFFFFFF
-    assert ts_16k == int(0xFFFFFF00 * ratio) & 0xFFFFFFFF
+    ts_16k = (ts_48k * 16000 // 48000) & 0xFFFFFFFF
+    assert ts_16k == (0xFFFFFF00 * 16000 // 48000) & 0xFFFFFFFF
 
 
 def test_worker_invalid_key_returns_error(free_port: int) -> None:
@@ -130,10 +102,8 @@ def test_worker_orphan_detection(srtp_key_b64: str, free_port: int) -> None:
             return original_ppid
         return original_ppid + 1
 
-    old_stdout = sys.stdout
-    sys.stdout = io.StringIO()
-
     with (
+        contextlib.redirect_stdout(io.StringIO()),
         patch("homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid),
         patch("homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS", 0.1),
     ):
@@ -144,7 +114,6 @@ def test_worker_orphan_detection(srtp_key_b64: str, free_port: int) -> None:
             target_clock_rate=16000,
         )
 
-    sys.stdout = old_stdout
     assert result == 0
 
 
@@ -191,21 +160,20 @@ def _run_worker_in_thread(
 
     old_stdout = sys.stdout
     sys.stdout = captured
-
-    worker_thread = threading.Thread(target=run_worker, daemon=True)
-    worker_thread.start()
-
-    time.sleep(0.3)
-    sys.stdout = old_stdout
+    try:
+        worker_thread = threading.Thread(target=run_worker, daemon=True)
+        worker_thread.start()
+        time.sleep(0.3)
+    finally:
+        sys.stdout = old_stdout
 
     return worker_thread, captured
 
 
-def _get_worker_port(captured: io.StringIO) -> int | None:
+def _get_worker_port(captured: io.StringIO) -> int:
     """Extract the worker's local port from captured stdout."""
     output = captured.getvalue().strip()
-    if not output:
-        return None
+    assert output, "Worker failed to start — no port written to stdout"
     return int(output)
 
 
@@ -219,12 +187,9 @@ def test_worker_processes_and_forwards_packet(
     )
 
     local_port = _get_worker_port(captured)
-    if local_port is None:
-        worker_thread.join(timeout=2.0)
-        return
 
     sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    rtp = _make_rtp_packet(seq=1, timestamp=960)
+    rtp = make_rtp_packet(seq=1, timestamp=960)
     sender.sendto(rtp, ("127.0.0.1", local_port))
     sender.close()
 
@@ -233,24 +198,46 @@ def test_worker_processes_and_forwards_packet(
     assert result_holder[0] == 0
 
 
-def test_worker_sendto_oserror_exits_cleanly(srtp_key_b64: str, free_port: int) -> None:
+def test_worker_sendto_oserror_exits_cleanly(
+    srtp_key_b64: str, free_port: int
+) -> None:
     """Worker should exit with 0 on OSError during sendto."""
     original_sendto = socket.socket.sendto
     sendto_armed = threading.Event()
 
-    def mock_sendto(self: socket.socket, data: bytes, address: tuple[str, int]) -> int:
+    def mock_sendto(
+        self: socket.socket, data: bytes, address: tuple[str, int]
+    ) -> int:
         if sendto_armed.is_set():
             raise OSError("Network is unreachable")
         return original_sendto(self, data, address)
 
     result_holder: list[int] = []
 
-    old_stdout = sys.stdout
+    # Use orphan detection as fallback exit path
+    original_ppid = os.getppid()
+    call_count = 0
+
+    def fake_getppid() -> int:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 5:
+            return original_ppid
+        return original_ppid + 1
+
     captured = io.StringIO()
+    old_stdout = sys.stdout
     sys.stdout = captured
 
     def run_worker() -> None:
-        with patch.object(socket.socket, "sendto", mock_sendto):
+        with (
+            patch.object(socket.socket, "sendto", mock_sendto),
+            patch(
+                "homekit_audio_proxy._worker.os.getppid",
+                side_effect=fake_getppid,
+            ),
+            patch("homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS", 0.2),
+        ):
             result = run_proxy(
                 dest_addr="127.0.0.1",
                 dest_port=free_port,
@@ -259,23 +246,21 @@ def test_worker_sendto_oserror_exits_cleanly(srtp_key_b64: str, free_port: int) 
             )
         result_holder.append(result)
 
-    worker_thread = threading.Thread(target=run_worker, daemon=True)
-    worker_thread.start()
-
-    time.sleep(0.3)
-    sys.stdout = old_stdout
+    try:
+        worker_thread = threading.Thread(target=run_worker, daemon=True)
+        worker_thread.start()
+        time.sleep(0.3)
+    finally:
+        sys.stdout = old_stdout
 
     local_port = _get_worker_port(captured)
-    if local_port is None:
-        worker_thread.join(timeout=2.0)
-        return
 
     # Arm the mock so the worker's sendto raises
     sendto_armed.set()
 
     # Send a valid RTP packet using the real sendto
     sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    rtp = _make_rtp_packet(seq=1, timestamp=960)
+    rtp = make_rtp_packet(seq=1, timestamp=960)
     original_sendto(sender, rtp, ("127.0.0.1", local_port))
     sender.close()
 
@@ -303,12 +288,9 @@ def test_worker_encrypt_exception_returns_error(
     )
 
     local_port = _get_worker_port(captured)
-    if local_port is None:
-        worker_thread.join(timeout=2.0)
-        return
 
     sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    rtp = _make_rtp_packet(seq=1, timestamp=960)
+    rtp = make_rtp_packet(seq=1, timestamp=960)
     sender.sendto(rtp, ("127.0.0.1", local_port))
     sender.close()
 
@@ -325,9 +307,6 @@ def test_worker_skips_short_packets(srtp_key_b64: str, free_port: int) -> None:
     )
 
     local_port = _get_worker_port(captured)
-    if local_port is None:
-        worker_thread.join(timeout=2.0)
-        return
 
     # Send a short packet (< 12 bytes) — should be silently skipped
     sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

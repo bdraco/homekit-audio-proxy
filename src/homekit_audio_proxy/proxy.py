@@ -6,9 +6,9 @@ import asyncio
 import logging
 import sys
 
-_LOGGER = logging.getLogger(__name__)
+from ._worker import SRTP_OPUS_CLOCK_RATE
 
-SRTP_OPUS_CLOCK_RATE = 48000
+_LOGGER = logging.getLogger(__name__)
 
 
 class AudioProxy:
@@ -55,6 +55,7 @@ class AudioProxy:
 
         if self._process.stdout is None:
             _LOGGER.error("Audio proxy subprocess has no stdout")
+            await self.async_stop()
             return
 
         line = await self._process.stdout.readline()
@@ -67,6 +68,7 @@ class AudioProxy:
                 "Audio proxy subprocess failed to start: %s",
                 stderr_output.decode(errors="replace").strip(),
             )
+            await self.async_stop()
             return
 
         self.local_port = int(line.strip())
@@ -104,8 +106,13 @@ class AudioProxy:
         """Stop the proxy subprocess and wait for port release."""
         if self._stderr_task and not self._stderr_task.done():
             self._stderr_task.cancel()
+            try:
+                await self._stderr_task
+            except asyncio.CancelledError:
+                pass
             self._stderr_task = None
-        if self._process and self._process.returncode is None:
-            self._process.kill()
-            await self._process.wait()
+        if self._process is not None:
+            if self._process.returncode is None:
+                self._process.kill()
+                await self._process.wait()
             self._process = None
