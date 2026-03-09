@@ -1,0 +1,22 @@
+# Changes here will be overwritten by Copier
+_commit: ee4a730
+_src_path: gh:browniebroke/pypackage-template
+add_me_as_contributor: false
+copyright_year: '2026'
+documentation: true
+email: nick@koston.org
+full_name: J. Nick Koston
+github_username: bdraco
+has_cli: false
+initial_commit: true
+is_django_package: false
+open_source_license: Apache-2.0
+open_with_editor: false
+package_name: homekit_audio_proxy
+project_name: HomeKit Audio Proxy
+project_short_description: HomeKit Audio Proxy
+project_slug: homekit-audio-proxy
+run_uv_sync: true
+setup_github: true
+setup_pre_commit: true
+
