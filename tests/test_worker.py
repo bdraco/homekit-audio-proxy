@@ -176,9 +176,7 @@ def test_worker_processes_and_forwards_packet(
 
     def run_worker() -> None:
         with (
-            patch(
-                "homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid
-            ),
+            patch("homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid),
             patch("homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS", 0.2),
         ):
             result = run_proxy(
@@ -240,9 +238,7 @@ def test_worker_skips_short_packets(srtp_key_b64: str, free_port: int) -> None:
 
     def run_worker() -> None:
         with (
-            patch(
-                "homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid
-            ),
+            patch("homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid),
             patch("homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS", 0.2),
         ):
             result = run_proxy(
