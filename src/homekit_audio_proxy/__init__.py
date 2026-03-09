@@ -8,7 +8,7 @@ subprocess-based proxy that receives plain RTP from FFmpeg, converts
 the timestamps, encrypts with SRTP, and forwards to the HomeKit client.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from .proxy import AudioProxy
 

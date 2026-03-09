@@ -11,6 +11,7 @@ import struct
 import pytest
 
 from homekit_audio_proxy import AudioProxy
+from homekit_audio_proxy.proxy import AudioProxy as _AudioProxy
 
 
 def _make_key_b64() -> str:
@@ -32,7 +33,6 @@ def _make_rtp_packet(
 @pytest.mark.asyncio
 async def test_proxy_start_stop():
     """Proxy should start, report a port, and stop cleanly."""
-    # Find a free port for dest
     tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     tmp.bind(("127.0.0.1", 0))
     dest_port = tmp.getsockname()[1]
@@ -54,10 +54,6 @@ async def test_proxy_start_stop():
 @pytest.mark.asyncio
 async def test_proxy_forwards_and_encrypts():
     """Proxy should forward RTP as SRTP with converted timestamps."""
-    # Find a free port for the proxy's send socket bind (dest_port).
-    # The proxy binds send_sock to 0.0.0.0:dest_port AND sends to
-    # dest_addr:dest_port, so on loopback the proxy's own send socket
-    # receives the forwarded packet.
     tmp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     tmp.bind(("127.0.0.1", 0))
     dest_port = tmp.getsockname()[1]
@@ -74,20 +70,56 @@ async def test_proxy_forwards_and_encrypts():
     assert proxy.local_port > 0
 
     try:
-        # Send a plain RTP packet to the proxy's recv port
         sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         rtp = _make_rtp_packet(seq=1, timestamp=960)
         sender.sendto(rtp, ("127.0.0.1", proxy.local_port))
         sender.close()
 
-        # Give the subprocess a moment to process and forward
         await asyncio.sleep(0.1)
 
-        # Verify the proxy is still running (didn't crash processing the packet)
         assert proxy._process is not None
         assert proxy._process.returncode is None
     finally:
         await proxy.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_proxy_start_with_invalid_key(caplog: pytest.LogCaptureFixture):
+    """Proxy should handle subprocess failure on start gracefully."""
+    proxy = AudioProxy(
+        dest_addr="127.0.0.1",
+        dest_port=0,
+        srtp_key_b64="not-valid-base64!!!",
+        target_clock_rate=16000,
+    )
+    await proxy.async_start()
+
+    assert proxy.local_port == 0
+    assert "Audio proxy subprocess failed to start" in caplog.text
+
+    await proxy.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_log_stderr_forwards_lines(caplog: pytest.LogCaptureFixture):
+    """_log_stderr should forward subprocess stderr lines to logger."""
+    reader = asyncio.StreamReader()
+    reader.feed_data(b"some warning message\n")
+    reader.feed_eof()
+
+    with caplog.at_level("WARNING"):
+        await _AudioProxy._log_stderr(reader)
+
+    assert "Audio proxy: some warning message" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_log_stderr_empty_stream():
+    """_log_stderr should return immediately on empty stream."""
+    reader = asyncio.StreamReader()
+    reader.feed_eof()
+
+    await _AudioProxy._log_stderr(reader)
 
 
 @pytest.mark.asyncio
@@ -99,6 +131,5 @@ async def test_proxy_stop_is_idempotent():
         srtp_key_b64=_make_key_b64(),
         target_clock_rate=16000,
     )
-    # Stop without starting
     await proxy.async_stop()
     await proxy.async_stop()
