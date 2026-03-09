@@ -43,17 +43,18 @@ def run_proxy(
     ratio = target_clock_rate / SRTP_OPUS_CLOCK_RATE
     parent_pid = os.getppid()
 
+    recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         recv_sock.settimeout(_RECV_TIMEOUT_SECONDS)
         recv_sock.bind(("127.0.0.1", 0))
         local_port = recv_sock.getsockname()[1]
     except OSError:
         traceback.print_exc(file=sys.stderr)
+        recv_sock.close()
         return 1
 
+    send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # SO_REUSEADDR allows quick rebind if a previous proxy just released
         # the port (e.g. stream restart)
         send_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -62,6 +63,7 @@ def run_proxy(
         send_sock.bind(("0.0.0.0", dest_port))  # noqa: S104
     except OSError:
         traceback.print_exc(file=sys.stderr)
+        send_sock.close()
         recv_sock.close()
         return 1
 

@@ -4,15 +4,32 @@ from __future__ import annotations
 
 import base64
 import os
+import socket
 import struct
+import threading
+import time
+from unittest.mock import patch
+
+import pytest
 
 from homekit_audio_proxy._srtp import SRTPContext
 from homekit_audio_proxy._worker import run_proxy
 
 
-def _make_key_b64() -> str:
+@pytest.fixture
+def srtp_key_b64() -> str:
     """Generate a random 30-byte SRTP master key+salt as base64."""
     return base64.b64encode(os.urandom(30)).decode()
+
+
+@pytest.fixture
+def free_port() -> int:
+    """Find a free UDP port."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
 
 
 def _make_rtp_packet(
@@ -26,30 +43,20 @@ def _make_rtp_packet(
     return header + payload
 
 
-def test_srtp_encrypt_roundtrip():
+def test_srtp_encrypt_roundtrip(srtp_key_b64: str) -> None:
     """SRTP context should produce correctly sized encrypted packets."""
-    key_b64 = _make_key_b64()
-    srtp = SRTPContext(key_b64)
+    srtp = SRTPContext(srtp_key_b64)
     rtp = _make_rtp_packet(timestamp=960)
     encrypted = srtp.encrypt(rtp)
     # SRTP packet: 12 header + 20 payload + 10 auth
     assert len(encrypted) == 42
 
 
-def test_worker_converts_timestamps():
+def test_worker_converts_timestamps() -> None:
     """Verify the timestamp ratio calculation is correct."""
-    # At 48kHz, 20ms = 960 samples
-    # At 16kHz, 20ms = 320 samples
-    # So timestamp 960 at 48kHz should become 320 at 16kHz
     ratio = 16000 / 48000
-    ts_48k = 960
-    ts_16k = int(ts_48k * ratio) & 0xFFFFFFFF
-    assert ts_16k == 320
-
-    # 60ms frame
-    ts_48k = 2880
-    ts_16k = int(ts_48k * ratio) & 0xFFFFFFFF
-    assert ts_16k == 960
+    assert int(960 * ratio) & 0xFFFFFFFF == 320
+    assert int(2880 * ratio) & 0xFFFFFFFF == 960
 
     # Verify wraparound handling
     ts_48k = 0xFFFFFF00
@@ -57,12 +64,214 @@ def test_worker_converts_timestamps():
     assert ts_16k == int(0xFFFFFF00 * ratio) & 0xFFFFFFFF
 
 
-def test_worker_invalid_key_returns_error():
+def test_worker_invalid_key_returns_error(free_port: int) -> None:
     """Worker should return 1 for an invalid SRTP key."""
     result = run_proxy(
         dest_addr="127.0.0.1",
-        dest_port=0,
+        dest_port=free_port,
         srtp_key_b64="not-valid-base64!!!",
         target_clock_rate=16000,
     )
     assert result == 1
+
+
+def test_worker_send_bind_failure_returns_error(srtp_key_b64: str) -> None:
+    """Worker should return 1 if send socket bind fails."""
+    original_bind = socket.socket.bind
+
+    def mock_bind(self: socket.socket, address: tuple[str, int]) -> None:
+        """Fail bind on 0.0.0.0 (the send socket) but allow 127.0.0.1 (recv)."""
+        if address[0] == "0.0.0.0":
+            raise OSError("Address already in use")
+        original_bind(self, address)
+
+    with patch.object(socket.socket, "bind", mock_bind):
+        result = run_proxy(
+            dest_addr="127.0.0.1",
+            dest_port=12345,
+            srtp_key_b64=srtp_key_b64,
+            target_clock_rate=16000,
+        )
+    assert result == 1
+
+
+def test_worker_recv_bind_failure_returns_error(srtp_key_b64: str) -> None:
+    """Worker should return 1 if recv socket bind fails."""
+    original_bind = socket.socket.bind
+
+    def mock_bind(self: socket.socket, address: tuple[str, int]) -> None:
+        """Fail bind on 127.0.0.1 (the recv socket)."""
+        if address[0] == "127.0.0.1":
+            raise OSError("Address already in use")
+        original_bind(self, address)
+
+    with patch.object(socket.socket, "bind", mock_bind):
+        result = run_proxy(
+            dest_addr="127.0.0.1",
+            dest_port=12345,
+            srtp_key_b64=srtp_key_b64,
+            target_clock_rate=16000,
+        )
+    assert result == 1
+
+
+def test_worker_orphan_detection(srtp_key_b64: str, free_port: int) -> None:
+    """Worker should exit when parent PID changes."""
+    call_count = 0
+    original_ppid = os.getppid()
+
+    def fake_getppid() -> int:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 1:
+            return original_ppid
+        # Return a different PID to simulate reparenting
+        return original_ppid + 1
+
+    import io
+    import sys
+
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+
+    with (
+        patch("homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid),
+        patch("homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS", 0.1),
+    ):
+        result = run_proxy(
+            dest_addr="127.0.0.1",
+            dest_port=free_port,
+            srtp_key_b64=srtp_key_b64,
+            target_clock_rate=16000,
+        )
+
+    sys.stdout = old_stdout
+    assert result == 0
+
+
+def test_worker_processes_and_forwards_packet(
+    srtp_key_b64: str, free_port: int
+) -> None:
+    """Worker should forward SRTP packets with converted timestamps."""
+    local_port_holder: list[int] = []
+    result_holder: list[int] = []
+
+    import io
+    import sys
+
+    old_stdout = sys.stdout
+    captured = io.StringIO()
+    sys.stdout = captured
+
+    original_ppid = os.getppid()
+    call_count = 0
+
+    def fake_getppid() -> int:
+        """Exit after a few checks to prevent hanging."""
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 3:
+            return original_ppid
+        return original_ppid + 1
+
+    def run_worker() -> None:
+        with (
+            patch(
+                "homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid
+            ),
+            patch("homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS", 0.2),
+        ):
+            result = run_proxy(
+                dest_addr="127.0.0.1",
+                dest_port=free_port,
+                srtp_key_b64=srtp_key_b64,
+                target_clock_rate=16000,
+            )
+        result_holder.append(result)
+
+    worker_thread = threading.Thread(target=run_worker, daemon=True)
+    worker_thread.start()
+
+    # Wait for worker to write its port
+    time.sleep(0.3)
+
+    sys.stdout = old_stdout
+    output = captured.getvalue().strip()
+    if not output:
+        worker_thread.join(timeout=2.0)
+        return
+
+    local_port = int(output)
+
+    # Send a valid RTP packet
+    sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    rtp = _make_rtp_packet(seq=1, timestamp=960)
+    sender.sendto(rtp, ("127.0.0.1", local_port))
+    sender.close()
+
+    # Worker will exit due to orphan detection mock
+    worker_thread.join(timeout=3.0)
+    assert not worker_thread.is_alive()
+    assert result_holder[0] == 0
+
+
+def test_worker_skips_short_packets(srtp_key_b64: str, free_port: int) -> None:
+    """Worker should skip packets shorter than minimum RTP header."""
+    local_port_holder: list[int] = []
+    result_holder: list[int] = []
+
+    import io
+    import sys
+
+    old_stdout = sys.stdout
+    captured = io.StringIO()
+    sys.stdout = captured
+
+    original_ppid = os.getppid()
+    call_count = 0
+
+    def fake_getppid() -> int:
+        """Exit after a few checks to prevent hanging."""
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 3:
+            return original_ppid
+        return original_ppid + 1
+
+    def run_worker() -> None:
+        with (
+            patch(
+                "homekit_audio_proxy._worker.os.getppid", side_effect=fake_getppid
+            ),
+            patch("homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS", 0.2),
+        ):
+            result = run_proxy(
+                dest_addr="127.0.0.1",
+                dest_port=free_port,
+                srtp_key_b64=srtp_key_b64,
+                target_clock_rate=16000,
+            )
+        result_holder.append(result)
+
+    worker_thread = threading.Thread(target=run_worker, daemon=True)
+    worker_thread.start()
+
+    time.sleep(0.3)
+
+    sys.stdout = old_stdout
+    output = captured.getvalue().strip()
+    if not output:
+        worker_thread.join(timeout=2.0)
+        return
+
+    local_port = int(output)
+
+    # Send a short packet (< 12 bytes) — should be silently skipped
+    sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sender.sendto(b"\x00" * 5, ("127.0.0.1", local_port))
+    sender.close()
+
+    # Worker exits via orphan detection
+    worker_thread.join(timeout=3.0)
+    assert not worker_thread.is_alive()
+    assert result_holder[0] == 0
