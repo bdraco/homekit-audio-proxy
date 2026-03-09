@@ -319,7 +319,11 @@ def test_worker_rejects_packets_from_different_sender(
     srtp_key_b64: str, free_port: int
 ) -> None:
     """Worker should reject packets from a sender other than the first."""
+    # Bind a recv socket with SO_REUSEADDR before the worker starts so both
+    # can share the port (required on Linux where SO_REUSEADDR semantics
+    # differ from macOS).
     recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     recv_sock.bind(("127.0.0.1", free_port))
     recv_sock.settimeout(1.0)
 
