@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.0 (2026-03-09)
+
+### Features
+
+- Add srtp audio proxy for homekit camera streaming ([`38cca7d`](https://github.com/bdraco/homekit-audio-proxy/commit/38cca7db81e8f153c54b1eba3c6bb5c3f2571bef))
+
 ## v1.1.0 (2026-03-09)
 
 ### Features
