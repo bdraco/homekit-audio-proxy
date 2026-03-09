@@ -5,11 +5,14 @@ requires = [ "setuptools>=77.0.3" ]
 [project]
 name = "homekit-audio-proxy"
 version = "1.0.0"
-description = "HomeKit Audio Proxy"
+description = "SRTP audio proxy for HomeKit camera streaming"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
   { name = "J. Nick Koston", email = "nick@koston.org" },
+]
+dependencies = [
+  "cryptography>=43.0.0",
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -34,6 +37,7 @@ urls.repository = "https://github.com/bdraco/homekit-audio-proxy"
 dev = [
   "coverage",
   "pytest==9.*",
+  "pytest-asyncio>=0.24",
   "pytest-cov==7.*",
   "sybil[pytest]",
 ]
@@ -82,8 +86,9 @@ lint.isort.known-first-party = [ "homekit_audio_proxy", "tests" ]
 [tool.pyproject-fmt]
 max_supported_python = "3.14"
 
-[tool.pytest]
+[tool.pytest.ini_options]
 minversion = "9.0"
+asyncio_mode = "auto"
 addopts = [
   "-v",
   "-Wonce",
