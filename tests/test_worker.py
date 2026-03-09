@@ -234,9 +234,7 @@ def test_worker_processes_and_forwards_packet(
     assert result_holder[0] == 0
 
 
-def test_worker_sendto_oserror_exits_cleanly(
-    srtp_key_b64: str, free_port: int
-) -> None:
+def test_worker_sendto_oserror_exits_cleanly(srtp_key_b64: str, free_port: int) -> None:
     """Worker should exit with 0 on OSError during sendto."""
     original_sendto = socket.socket.sendto
     sendto_armed = threading.Event()
