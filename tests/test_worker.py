@@ -239,7 +239,9 @@ def test_worker_sendto_oserror_exits_cleanly(srtp_key_b64: str, free_port: int) 
     original_sendto = socket.socket.sendto
     sendto_armed = threading.Event()
 
-    def mock_sendto(self: socket.socket, data: bytes, address: object) -> int:
+    def mock_sendto(
+        self: socket.socket, data: bytes, address: tuple[str, int]
+    ) -> int:
         if sendto_armed.is_set():
             raise OSError("Network is unreachable")
         return original_sendto(self, data, address)
