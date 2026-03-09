@@ -11,7 +11,6 @@ import struct
 import pytest
 
 from homekit_audio_proxy import AudioProxy
-from homekit_audio_proxy.proxy import AudioProxy as _AudioProxy
 
 
 def _make_key_b64() -> str:
@@ -108,7 +107,7 @@ async def test_log_stderr_forwards_lines(caplog: pytest.LogCaptureFixture) -> No
     reader.feed_eof()
 
     with caplog.at_level("WARNING"):
-        await _AudioProxy._log_stderr(reader)
+        await AudioProxy._log_stderr(reader)
 
     assert "Audio proxy: some warning message" in caplog.text
 
@@ -119,7 +118,7 @@ async def test_log_stderr_empty_stream():
     reader = asyncio.StreamReader()
     reader.feed_eof()
 
-    await _AudioProxy._log_stderr(reader)
+    await AudioProxy._log_stderr(reader)
 
 
 @pytest.mark.asyncio

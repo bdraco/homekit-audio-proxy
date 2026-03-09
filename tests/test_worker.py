@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import os
 import socket
@@ -165,23 +166,21 @@ def _run_worker_in_thread(
             return original_ppid
         return original_ppid + 1
 
+    side_effects: dict[str, object] = {
+        "homekit_audio_proxy._worker.os.getppid": fake_getppid,
+    }
+    values: dict[str, object] = {
+        "homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS": 0.2,
+    }
+    if extra_patches:
+        side_effects.update(extra_patches)
+
     def run_worker() -> None:
-        patches = {
-            "homekit_audio_proxy._worker.os.getppid": fake_getppid,
-            "homekit_audio_proxy._worker._RECV_TIMEOUT_SECONDS": 0.2,
-        }
-        if extra_patches:
-            patches.update(extra_patches)
-
-        # Build nested context managers for all patches
-        import contextlib
-
         with contextlib.ExitStack() as stack:
-            for target, value in patches.items():
-                if callable(value):
-                    stack.enter_context(patch(target, side_effect=value))
-                else:
-                    stack.enter_context(patch(target, value))
+            for target, side_effect in side_effects.items():
+                stack.enter_context(patch(target, side_effect=side_effect))
+            for target, value in values.items():
+                stack.enter_context(patch(target, value))
             result = run_proxy(
                 dest_addr="127.0.0.1",
                 dest_port=free_port,
