@@ -41,9 +41,7 @@ class SRTPContext:
         master_salt = key_material[16:30]
 
         self._session_key = _derive_srtp_key(master_key, master_salt, 0, 16)
-        self._session_auth_key = _derive_srtp_key(
-            master_key, master_salt, 1, 20
-        )
+        self._session_auth_key = _derive_srtp_key(master_key, master_salt, 1, 20)
         self._session_salt = _derive_srtp_key(master_key, master_salt, 2, 14)
         self._roc: int = 0
         self._last_seq: int = 0
@@ -77,16 +75,14 @@ class SRTPContext:
         for i in range(14):
             iv[i] ^= self._session_salt[i]
 
-        cipher = Cipher(
-            algorithms.AES(self._session_key), modes.CTR(bytes(iv))
-        )
+        cipher = Cipher(algorithms.AES(self._session_key), modes.CTR(bytes(iv)))
         encryptor = cipher.encryptor()
         encrypted_payload = encryptor.update(payload) + encryptor.finalize()
 
         srtp_packet = header + encrypted_payload
         auth_data = srtp_packet + _UINT32_BE.pack(self._roc)
-        auth_tag = hmac.new(
-            self._session_auth_key, auth_data, hashlib.sha1
-        ).digest()[:_AUTH_TAG_LENGTH]
+        auth_tag = hmac.new(self._session_auth_key, auth_data, hashlib.sha1).digest()[
+            :_AUTH_TAG_LENGTH
+        ]
 
         return srtp_packet + auth_tag

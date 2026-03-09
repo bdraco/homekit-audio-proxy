@@ -1,4 +1,5 @@
-"""HomeKit audio RTP proxy.
+"""
+HomeKit audio RTP proxy.
 
 FFmpeg's RTP muxer uses a 48000 Hz clock rate for Opus (per RFC 7587),
 but Apple's HomeKit implementation expects the RTP timestamps to use

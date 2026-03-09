@@ -37,7 +37,7 @@ def test_encrypt_produces_valid_srtp_packet():
     """Encrypted packet should be header + encrypted payload + 10-byte auth tag."""
     key_b64 = _make_key_b64()
     ctx = SRTPContext(key_b64)
-    rtp = _make_rtp_packet(payload=b"\xAB" * 20)
+    rtp = _make_rtp_packet(payload=b"\xab" * 20)
 
     srtp = ctx.encrypt(rtp)
 
@@ -73,7 +73,7 @@ def test_sequential_packets_produce_different_output():
     """Two packets with different sequence numbers should produce different SRTP."""
     key_b64 = _make_key_b64()
     ctx = SRTPContext(key_b64)
-    payload = b"\xAA" * 20
+    payload = b"\xaa" * 20
 
     srtp1 = ctx.encrypt(_make_rtp_packet(seq=1, payload=payload))
     srtp2 = ctx.encrypt(_make_rtp_packet(seq=2, payload=payload))
@@ -140,7 +140,7 @@ def test_encrypt_with_extension():
     # Extension header: profile-specific ID + length in 32-bit words
     ext = struct.pack("!HH", 0xBEDE, 1)  # 1 word of extension data
     ext_data = b"\x00" * 4
-    payload = b"\xFF" * 10
+    payload = b"\xff" * 10
     rtp = header + ext + ext_data + payload
 
     srtp = ctx.encrypt(rtp)

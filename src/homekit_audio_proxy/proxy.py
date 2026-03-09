@@ -12,7 +12,8 @@ SRTP_OPUS_CLOCK_RATE = 48000
 
 
 class AudioProxy:
-    """Proxy that converts FFmpeg's Opus RTP timestamps for HomeKit.
+    """
+    Proxy that converts FFmpeg's Opus RTP timestamps for HomeKit.
 
     Runs as a subprocess to keep crypto work off the caller's event loop.
     """

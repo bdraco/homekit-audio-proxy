@@ -1,4 +1,5 @@
-"""Subprocess worker for the audio proxy.
+"""
+Subprocess worker for the audio proxy.
 
 This module is invoked as ``python -m homekit_audio_proxy`` and runs the
 blocking UDP recv/send loop. The SRTP key is read from stdin to avoid
@@ -28,13 +29,14 @@ def run_proxy(
     srtp_key_b64: str,
     target_clock_rate: int,
 ) -> int:
-    """Run the audio proxy loop (blocking, for subprocess use).
+    """
+    Run the audio proxy loop (blocking, for subprocess use).
 
     Returns exit code: 0 for clean shutdown, 1 for error.
     """
     try:
         srtp = SRTPContext(srtp_key_b64)
-    except Exception:  # noqa: BLE001
+    except Exception:
         traceback.print_exc(file=sys.stderr)
         return 1
 
@@ -92,10 +94,9 @@ def run_proxy(
             packets_forwarded += 1
     except OSError as err:
         sys.stderr.write(
-            f"Audio proxy socket error after"
-            f" {packets_forwarded} packets: {err}\n"
+            f"Audio proxy socket error after {packets_forwarded} packets: {err}\n"
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         traceback.print_exc(file=sys.stderr)
         return 1
     finally:
