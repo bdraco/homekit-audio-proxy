@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.1 (2026-03-09)
+
+### Bug fixes
+
+- Lock recv socket to first sender to prevent audio injection ([`fc2427c`](https://github.com/bdraco/homekit-audio-proxy/commit/fc2427c79ca399c5ab40cb866f780bb16ceb6bbd))
+
 ## v1.2.0 (2026-03-09)
 
 ### Features
