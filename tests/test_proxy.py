@@ -23,9 +23,7 @@ def free_dest_port() -> int:
 
 
 @pytest.mark.asyncio
-async def test_proxy_start_stop(
-    srtp_key_b64: str, free_dest_port: int
-) -> None:
+async def test_proxy_start_stop(srtp_key_b64: str, free_dest_port: int) -> None:
     """Proxy should start, report a port, and stop cleanly."""
     proxy = AudioProxy(
         dest_addr="127.0.0.1",

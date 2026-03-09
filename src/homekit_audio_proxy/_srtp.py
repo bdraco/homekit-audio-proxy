@@ -39,8 +39,7 @@ class SRTPContext:
         key_material = base64.b64decode(master_key_b64)
         if len(key_material) < 30:
             msg = (
-                f"SRTP key material must be at least 30 bytes,"
-                f" got {len(key_material)}"
+                f"SRTP key material must be at least 30 bytes, got {len(key_material)}"
             )
             raise ValueError(msg)
         master_key = key_material[:16]

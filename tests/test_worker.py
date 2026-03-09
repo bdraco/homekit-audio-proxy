@@ -11,8 +11,6 @@ import threading
 import time
 from unittest.mock import patch
 
-import pytest
-
 from homekit_audio_proxy._srtp import SRTPContext
 from homekit_audio_proxy._worker import run_proxy
 
@@ -198,16 +196,12 @@ def test_worker_processes_and_forwards_packet(
     assert result_holder[0] == 0
 
 
-def test_worker_sendto_oserror_exits_cleanly(
-    srtp_key_b64: str, free_port: int
-) -> None:
+def test_worker_sendto_oserror_exits_cleanly(srtp_key_b64: str, free_port: int) -> None:
     """Worker should exit with 0 on OSError during sendto."""
     original_sendto = socket.socket.sendto
     sendto_armed = threading.Event()
 
-    def mock_sendto(
-        self: socket.socket, data: bytes, address: tuple[str, int]
-    ) -> int:
+    def mock_sendto(self: socket.socket, data: bytes, address: tuple[str, int]) -> int:
         if sendto_armed.is_set():
             raise OSError("Network is unreachable")
         return original_sendto(self, data, address)
