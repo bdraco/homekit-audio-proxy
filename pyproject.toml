@@ -5,7 +5,7 @@ requires = [ "setuptools>=77.0.3" ]
 [project]
 name = "homekit-audio-proxy"
 version = "1.1.0"
-description = "HomeKit Audio Proxy"
+description = "SRTP audio proxy for HomeKit camera streaming"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [
@@ -22,6 +22,9 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Topic :: Software Development :: Libraries",
 ]
+dependencies = [
+  "cryptography>=43",
+]
 urls."Bug Tracker" = "https://github.com/bdraco/homekit-audio-proxy/issues"
 urls.Changelog = "https://github.com/bdraco/homekit-audio-proxy/blob/main/CHANGELOG.md"
 urls.documentation = "https://homekit-audio-proxy.readthedocs.io"
@@ -31,7 +34,9 @@ urls.repository = "https://github.com/bdraco/homekit-audio-proxy"
 dev = [
   "coverage",
   "pytest==9.*",
+  "pytest-asyncio>=0.24",
   "pytest-cov==7.*",
+  "pytest-timeout",
   "sybil[pytest]",
 ]
 docs = [
@@ -80,8 +85,9 @@ lint.isort.known-first-party = [ "homekit_audio_proxy", "tests" ]
 max_supported_python = "3.14"
 
 [tool.pytest]
-minversion = "9.0"
-addopts = [
+ini_options.minversion = "9.0"
+ini_options.asyncio_mode = "auto"
+ini_options.addopts = [
   "-v",
   "-Wonce",
   "-p no:doctest",
@@ -89,7 +95,8 @@ addopts = [
   "--cov-report=term",
   "--cov-report=xml",
 ]
-pythonpath = [ "src" ]
+ini_options.timeout = 30
+ini_options.pythonpath = [ "src" ]
 
 [tool.coverage]
 run.branch = true
