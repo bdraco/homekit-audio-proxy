@@ -72,16 +72,24 @@ def run_proxy(
 
     dest = (dest_addr, dest_port)
     packets_forwarded = 0
+    allowed_sender: tuple[str, int] | None = None
     try:
         while True:
             try:
-                data = recv_sock.recv(_UDP_MAX_READ)
+                data, sender = recv_sock.recvfrom(_UDP_MAX_READ)
             except TimeoutError:
                 # Check if parent process is still alive to avoid orphaning
                 if os.getppid() != parent_pid:
                     break
                 continue
             if len(data) < _MIN_RTP_HEADER_SIZE:
+                continue
+
+            # Lock to the first sender (FFmpeg) to prevent other local
+            # processes from injecting audio into the stream.
+            if allowed_sender is None:
+                allowed_sender = sender
+            elif sender != allowed_sender:
                 continue
 
             # Convert timestamp from 48000 Hz to negotiated sample rate

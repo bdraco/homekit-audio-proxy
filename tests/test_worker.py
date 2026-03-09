@@ -11,6 +11,8 @@ import threading
 import time
 from unittest.mock import patch
 
+import pytest
+
 from homekit_audio_proxy._srtp import SRTPContext
 from homekit_audio_proxy._worker import run_proxy
 
@@ -308,6 +310,48 @@ def test_worker_skips_short_packets(srtp_key_b64: str, free_port: int) -> None:
     sender.close()
 
     # Worker exits via orphan detection
+    worker_thread.join(timeout=3.0)
+    assert not worker_thread.is_alive()
+    assert result_holder[0] == 0
+
+
+def test_worker_rejects_packets_from_different_sender(
+    srtp_key_b64: str, free_port: int
+) -> None:
+    """Worker should reject packets from a sender other than the first."""
+    recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    recv_sock.bind(("127.0.0.1", free_port))
+    recv_sock.settimeout(1.0)
+
+    result_holder: list[int] = []
+    worker_thread, captured = _run_worker_in_thread(
+        srtp_key_b64, free_port, result_holder
+    )
+
+    local_port = _get_worker_port(captured)
+
+    # First sender locks in as the allowed source
+    sender1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    rtp1 = make_rtp_packet(seq=1, timestamp=960)
+    sender1.sendto(rtp1, ("127.0.0.1", local_port))
+
+    # Receive the forwarded packet from sender1
+    data1 = recv_sock.recv(2048)
+    assert len(data1) > 0
+
+    # Second sender from a different port should be rejected
+    sender2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    rtp2 = make_rtp_packet(seq=2, timestamp=1920)
+    sender2.sendto(rtp2, ("127.0.0.1", local_port))
+
+    # No packet should be forwarded from sender2
+    with pytest.raises(TimeoutError):
+        recv_sock.recv(2048)
+
+    sender1.close()
+    sender2.close()
+    recv_sock.close()
+
     worker_thread.join(timeout=3.0)
     assert not worker_thread.is_alive()
     assert result_holder[0] == 0
